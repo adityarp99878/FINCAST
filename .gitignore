@@ -1,0 +1,43 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Trained model files (too large for GitHub) ─────────────────────────────────
+models/*.pkl
+models/*.h5
+models/*.joblib
+
+# ── ALL data directories (large CSVs, ZIPs, raw downloads) ────────────────────
+data/
+
+# ── Results / plots ────────────────────────────────────────────────────────────
+results/
+
+# ── Jupyter ────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# ── OS / IDE ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Logs & archives ───────────────────────────────────────────────────────────
+*.log
+*.zip
