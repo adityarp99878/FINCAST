@@ -87,14 +87,12 @@ RISK_FREE_RATE        = 0.04      # annualised
 STRATEGY_TYPE         = "long_only"  # long_only: cash when not confident (safer with ~53% accuracy models)
 LEVERAGE              = 1.0       # e.g., 2.0 for 2x leverage (increases profit and risk)
 
-# Regime-specific confidence thresholds for ensemble signals.
-# Philosophy: in a Bull regime (HMM-detected), go long unless the model
-# strongly disagrees (threshold 0.49 = participate in the uptrend).
-# In Bear / High-Vol regimes, require real model conviction before entering.
+# Optimized regime-specific confidence thresholds for ensemble signals.
+# Found via grid search to maximize CAGR and Sharpe ratio.
 REGIME_THRESHOLDS = {
-    "Bull":            {"long": 0.49, "short": 0.45},   # follow the bull: long unless model says no
-    "Bear":            {"long": 0.62, "short": 0.45},   # very selective in bear
-    "High-Volatility": {"long": 0.56, "short": 0.44},   # cautious in volatile markets
+    "Bull":            {"long": 0.40, "short": 0.35},   # participate by default, exit on strong down prediction
+    "Bear":            {"long": 0.42, "short": 0.35},   # selective entry, exit on down prediction
+    "High-Volatility": {"long": 0.40, "short": 0.35},   # participate by default, exit on strong down prediction
 }
 
 # Trailing stop-loss: exit to cash when running drawdown exceeds this fraction.
