@@ -82,18 +82,19 @@ TFIDF_MAX_FEATURES = 5000
 # ─── Backtesting ──────────────────────────────────────────────────────────────
 
 INITIAL_CAPITAL       = 100_000   # USD
-TRANSACTION_COST_PCT  = 0.0005    # 0.05% realistic commission
+TRANSACTION_COST_PCT  = 0.001     # 0.1% realistic commission (round-trip)
 RISK_FREE_RATE        = 0.04      # annualised
-STRATEGY_TYPE         = "long_short" # "long_only" or "long_short" (shorting increases profit during downturns)
+STRATEGY_TYPE         = "long_only"  # long_only: cash when not confident (safer with ~53% accuracy models)
 LEVERAGE              = 1.0       # e.g., 2.0 for 2x leverage (increases profit and risk)
 
-# Regime-specific confidence thresholds for ensemble signals
-# Long: if ensemble_proba > threshold_long
-# Short: if ensemble_proba < threshold_short
+# Regime-specific confidence thresholds for ensemble signals.
+# Philosophy: in a Bull regime (HMM-detected), go long unless the model
+# strongly disagrees (threshold 0.49 = participate in the uptrend).
+# In Bear / High-Vol regimes, require real model conviction before entering.
 REGIME_THRESHOLDS = {
-    "Bull":            {"long": 0.48, "short": 0.30}, 
-    "Bear":            {"long": 0.70, "short": 0.52},
-    "High-Volatility": {"long": 0.65, "short": 0.35},
+    "Bull":            {"long": 0.49, "short": 0.45},   # follow the bull: long unless model says no
+    "Bear":            {"long": 0.62, "short": 0.45},   # very selective in bear
+    "High-Volatility": {"long": 0.56, "short": 0.44},   # cautious in volatile markets
 }
 
 # Trailing stop-loss: exit to cash when running drawdown exceeds this fraction.

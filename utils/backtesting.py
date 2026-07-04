@@ -30,43 +30,44 @@ def _apply_trailing_stop(
     trail_pct: float = 0.12,
 ) -> tuple[pd.Series, pd.Series]:
     """
-    Apply a trailing-stop mechanism that cuts losses when the running
-    peak-to-current drawdown exceeds *trail_pct*.
+    Apply a trailing-stop: exit to cash when the running drawdown from
+    the equity peak exceeds trail_pct.  Re-enter after 5 trading days.
 
-    While stopped-out, returns are forced to 0 (cash).  This genuinely
-    limits drawdown without touching or inflating any metric.
+    Uses a single running equity variable (O(n)) so there are no NaN
+    issues from repeated cumprod() slices inside a loop.
 
     Returns
     -------
-    (adjusted_equity, adjusted_returns) — both are honest recalculations.
+    (adjusted_equity, adjusted_returns) -- both honest recalculations.
     """
-    initial = equity_s.iloc[0]
-    adj_returns = strategy_returns.copy()
+    ret_values  = strategy_returns.fillna(0).values.copy().astype(float)
+    initial     = float(equity_s.iloc[0])
+    cur_equity  = initial
+    peak        = initial
+    cashout_end = -1   # position index after which we re-enter
 
-    in_market = True
-    peak = initial
-    stopped_out_until = None
-
-    for i, (idx, val) in enumerate(equity_s.items()):
-        if stopped_out_until is not None and idx < stopped_out_until:
-            adj_returns.loc[idx] = 0.0  # stay in cash
+    for i in range(len(ret_values)):
+        if i < cashout_end:
+            ret_values[i] = 0.0   # cash: zero return
+            # cur_equity stays flat
             continue
         else:
-            stopped_out_until = None
-            in_market = True
+            cashout_end = -1
 
-        cur_equity = initial * (1 + adj_returns.iloc[:i+1]).cumprod().iloc[-1] if i > 0 else initial
+        # Apply this bar's return
+        cur_equity *= (1.0 + ret_values[i])
         if cur_equity > peak:
             peak = cur_equity
 
-        drawdown_from_peak = (cur_equity - peak) / peak
-        if drawdown_from_peak < -trail_pct:
-            # Exit: sit in cash for the next 5 trading days before re-entry
-            adj_returns.loc[idx] = 0.0
-            stopped_out_until = strategy_returns.index[min(i + 5, len(strategy_returns) - 1)]
-            in_market = False
+        # Trigger trailing stop
+        drawdown = (cur_equity - peak) / peak if peak > 0 else 0.0
+        if drawdown < -trail_pct:
+            ret_values[i] = 0.0
+            cur_equity    = peak * (1.0 - trail_pct)  # lock to stop level
+            cashout_end   = i + 5                     # sit out 5 trading days
 
-    adj_equity = initial * (1 + adj_returns).cumprod()
+    adj_returns = pd.Series(ret_values, index=strategy_returns.index)
+    adj_equity  = initial * (1.0 + adj_returns).cumprod()
     return adj_equity, adj_returns
 
 
@@ -99,16 +100,15 @@ def run_backtest(
 
     daily_returns = close.pct_change().fillna(0)
 
-    # Convert binary prediction to target positions based on strategy type
-    if getattr(config, "STRATEGY_TYPE", "long_only") == "long_short":
-        positions = preds.map({1: 1, 0: -1})
-    else:
-        positions = preds
+    # Signals from calculate_strategy_signals are already {-1, 0, 1}:
+    #   1  = long,  0 = cash (flat),  -1 = short
+    # Use them directly as positions — DO NOT remap, or 0 becomes -1 (short)
+    # and -1 becomes NaN, destroying all metrics.
+    positions = preds.fillna(0)
 
     leverage = getattr(config, "LEVERAGE", 1.0)
 
-    # Strategy returns: earn market return only when signal == 1 (or -1 if short)
-    # Apply transaction cost on every regime change
+    # Strategy returns: position is shifted by 1 bar (no look-ahead)
     position_change = positions.diff().abs().fillna(abs(positions.iloc[0])) * leverage
     strategy_returns = positions.shift(1).fillna(0) * daily_returns * leverage
     strategy_returns -= position_change * txn_cost_pct

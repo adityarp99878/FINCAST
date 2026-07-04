@@ -1237,7 +1237,15 @@ async function loadResults() {
     </div>`;
 
   } catch(e) {
+    console.error('loadResults error:', e);
     document.getElementById('no-results-alert').style.display = 'flex';
+  }
+
+  // After results load, auto-switch to Dashboard tab so user sees fresh data
+  const dashNav = document.querySelector('[data-page="dashboard"]') ||
+                  document.querySelector('.nav-item[onclick*="dashboard"]');
+  if (dashNav && typeof showPage === 'function') {
+    showPage('dashboard');
   }
 }
 
@@ -1554,13 +1562,20 @@ async function runPipeline() {
       document.getElementById('progress-eta').textContent =
         data.pct < 100 ? `Step in progress...` : 'Complete';
     } else if (data.type === 'done') {
-      addLog('DONE', '✓ Pipeline finished successfully — check Dashboard for results');
+      addLog('DONE', '✓ Pipeline finished successfully — loading results...');
       document.getElementById('log-dot').style.background = 'var(--bull)';
       document.getElementById('log-dot').style.animation = 'none';
       document.getElementById('log-status').textContent = 'COMPLETE';
       resetRunBtn();
-      loadResults(); // Auto-load results into memory
       evtSource.close();
+      // Small delay so Flask finishes writing results.json before we fetch
+      setTimeout(() => {
+        loadResults().then(() => {
+          addLog('INFO', 'All dashboard sections updated.');
+          // Notify any other listeners that results are fresh
+          document.dispatchEvent(new CustomEvent('resultsUpdated'));
+        });
+      }, 600);
     } else if (data.type === 'error') {
       addLog('ERROR', data.msg);
       document.getElementById('log-dot').style.background = 'var(--bear)';

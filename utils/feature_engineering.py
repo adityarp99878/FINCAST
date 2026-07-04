@@ -46,21 +46,24 @@ def add_macd(
 
 
 def add_bollinger_bands(df: pd.DataFrame, window: int = config.BB_WINDOW) -> pd.DataFrame:
-    """Bollinger Bands (upper, middle, lower) and %B."""
+    """Bollinger Bands %B and normalized distances."""
     mid   = df["Close"].rolling(window).mean()
     std   = df["Close"].rolling(window).std()
-    df[f"BB_Upper_{window}"] = mid + 2 * std
-    df[f"BB_Mid_{window}"]   = mid
-    df[f"BB_Lower_{window}"] = mid - 2 * std
-    df[f"BB_PctB_{window}"]  = (df["Close"] - (mid - 2 * std)) / (4 * std + 1e-9)
+    upper = mid + 2 * std
+    lower = mid - 2 * std
+    df[f"BB_PctB_{window}"]  = (df["Close"] - lower) / (4 * std + 1e-9)
+    df[f"BB_Upper_Dist_{window}"] = (upper - df["Close"]) / (df["Close"] + 1e-9)
+    df[f"BB_Lower_Dist_{window}"] = (df["Close"] - lower) / (df["Close"] + 1e-9)
     return df
 
 
 def add_moving_averages(df: pd.DataFrame, windows: list = config.ROLLING_WINDOWS) -> pd.DataFrame:
-    """Simple and exponential moving averages for multiple windows."""
+    """Simple and exponential moving average ratios (percentage distance from Close)."""
     for w in windows:
-        df[f"SMA_{w}"] = df["Close"].rolling(w).mean()
-        df[f"EMA_{w}"] = df["Close"].ewm(span=w, adjust=False).mean()
+        sma = df["Close"].rolling(w).mean()
+        ema = df["Close"].ewm(span=w, adjust=False).mean()
+        df[f"SMA_Dist_{w}"] = (df["Close"] - sma) / (df["Close"] + 1e-9)
+        df[f"EMA_Dist_{w}"] = (df["Close"] - ema) / (df["Close"] + 1e-9)
     return df
 
 
@@ -73,26 +76,27 @@ def add_volatility(df: pd.DataFrame, windows: list = config.ROLLING_WINDOWS) -> 
 
 
 def add_volume_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Volume-derived features: OBV and volume ratio."""
+    """Volume-derived features: OBV change and volume ratio."""
     direction = np.sign(df["Close"].diff()).fillna(0)
-    df["OBV"] = (df["Volume"] * direction).cumsum()
-    df["Volume_Ratio_20"] = df["Volume"] / df["Volume"].rolling(20).mean()
+    obv = (df["Volume"] * direction).cumsum()
+    df["OBV_Ratio"] = obv / (obv.rolling(20).mean() + 1e-9)
+    df["Volume_Ratio_20"] = df["Volume"] / (df["Volume"].rolling(20).mean() + 1e-9)
     return df
 
 
 def add_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-    """Average True Range — captures volatility regime shifts."""
+    """Average True Range — normalized by close price to make it stationary."""
     high_low   = df["High"] - df["Low"]
     high_close = (df["High"] - df["Close"].shift(1)).abs()
     low_close  = (df["Low"]  - df["Close"].shift(1)).abs()
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df[f"ATR_{period}"] = tr.rolling(period).mean()
-    df[f"ATR_Ratio_{period}"] = df[f"ATR_{period}"] / df["Close"]  # normalised
+    atr = tr.rolling(period).mean()
+    df[f"ATR_Ratio_{period}"] = atr / (df["Close"] + 1e-9)
     return df
 
 
 def add_williams_r(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-    """Williams %R — overbought/oversold oscillator similar to RSI but based on H/L."""
+    """Williams %R — overbought/oversold oscillator (bounded -100 to 0)."""
     highest_high = df["High"].rolling(period).max()
     lowest_low   = df["Low"].rolling(period).min()
     df[f"Williams_R_{period}"] = -100 * (highest_high - df["Close"]) / (
@@ -102,7 +106,7 @@ def add_williams_r(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
 
 def add_stochastic(df: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> pd.DataFrame:
-    """%K and %D stochastic oscillator — complements RSI for momentum."""
+    """%K and %D stochastic oscillator — complements RSI (bounded 0 to 100)."""
     lowest_low   = df["Low"].rolling(k_period).min()
     highest_high = df["High"].rolling(k_period).max()
     df["Stoch_K"] = 100 * (df["Close"] - lowest_low) / (
@@ -253,9 +257,9 @@ def add_commodity_features(
     if not gold_df.empty:
         g = gold_df.reindex(df.index, method="ffill")
         g_col = "Gold_Close" if "Gold_Close" in g.columns else "Close"
-        df["Gold_Close"]       = g[g_col]
-        df["Gold_LogReturn"]   = np.log(df["Gold_Close"] / df["Gold_Close"].shift(1))
-        df["Gold_Momentum_20"] = df["Gold_Close"].pct_change(20)
+        gold_close             = g[g_col]
+        df["Gold_LogReturn"]   = np.log(gold_close / gold_close.shift(1))
+        df["Gold_Momentum_20"] = gold_close.pct_change(20)
         df["Stock_Gold_Corr_20"] = (
             df["Log_Return"].rolling(20).corr(df["Gold_LogReturn"])
         )
@@ -263,11 +267,11 @@ def add_commodity_features(
     if not silver_df.empty:
         s = silver_df.reindex(df.index, method="ffill")
         s_col = "Silver_Close" if "Silver_Close" in s.columns else "Close"
-        df["Silver_Close"]     = s[s_col]
-        df["Silver_LogReturn"] = np.log(df["Silver_Close"] / df["Silver_Close"].shift(1))
+        silver_close           = s[s_col]
+        df["Silver_LogReturn"] = np.log(silver_close / silver_close.shift(1))
 
     if not gold_df.empty and not silver_df.empty:
-        df["Gold_Silver_Ratio"] = df["Gold_Close"] / df["Silver_Close"].replace(0, np.nan)
+        df["Gold_Silver_Ratio"] = gold_close / silver_close.replace(0, np.nan)
 
     return df
 
@@ -284,7 +288,7 @@ def add_forex_features(
     """
     Merge EUR/USD and USD/INR features into the stock DataFrame.
     Sources: Kaggle hourly CSV resampled daily, or yfinance fallback.
-    New columns: EURUSD, USDINR, EURUSD_Change_5d
+    New columns: EURUSD_Change_5d, USDINR_Change_5d
     """
     if eurusd_df is None:
         try:
@@ -303,14 +307,14 @@ def add_forex_features(
     if not eurusd_df.empty:
         e = eurusd_df.reindex(df.index, method="ffill")
         e_col = "EURUSD" if "EURUSD" in e.columns else "Close"
-        df["EURUSD"]          = e[e_col]
-        df["EURUSD_Change_5d"] = df["EURUSD"].pct_change(5)
+        eurusd_price          = e[e_col]
+        df["EURUSD_Change_5d"] = eurusd_price.pct_change(5)
 
     if not usdinr_df.empty:
         u = usdinr_df.reindex(df.index, method="ffill")
         u_col = "USDINR" if "USDINR" in u.columns else "Close"
-        df["USDINR"]          = u[u_col]
-        df["USDINR_Change_5d"] = df["USDINR"].pct_change(5)
+        usdinr_price          = u[u_col]
+        df["USDINR_Change_5d"] = usdinr_price.pct_change(5)
 
     return df
 
@@ -326,7 +330,7 @@ def add_sp500_features(
     """
     Merge S&P 500 features into the stock DataFrame.
     Sources: Kaggle CSVs or yfinance ^GSPC fallback.
-    New columns: SP500_Close, SP500_Change_5d
+    New columns: SP500_Change_5d
     """
     if sp500_df is None:
         try:
@@ -339,8 +343,8 @@ def add_sp500_features(
         s = sp500_df.reindex(df.index, method="ffill")
         s_col = "SP500_Close" if "SP500_Close" in s.columns else "Close"
         if s_col in s.columns:
-            df["SP500_Close"] = s[s_col]
-            df["SP500_Change_5d"] = df["SP500_Close"].pct_change(5)
+            sp500_close = s[s_col]
+            df["SP500_Change_5d"] = sp500_close.pct_change(5)
 
     return df
 
@@ -405,6 +409,12 @@ def prepare_dataset(
         df = add_sp500_features(df, sp500_df=sp500_df)
 
     df = add_target(df)
+
+    # Drop any remaining raw non-stationary price/indicator levels to ensure stationarity
+    cols_to_drop = ["Gold_Close", "Forex_Close", "Silver_Close", "EURUSD", "USDINR", "SP500_Close", "OBV"]
+    existing_to_drop = [c for c in cols_to_drop if c in df.columns]
+    if existing_to_drop:
+        df = df.drop(columns=existing_to_drop)
 
     if drop_na:
         df = df.dropna()
