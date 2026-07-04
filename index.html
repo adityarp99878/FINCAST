@@ -1099,16 +1099,7 @@
 // ════════════════════════════════════════════════
 //  PAGE ROUTING
 // ════════════════════════════════════════════════
-function showPage(id) {
-  document.querySelectorAll('main').forEach(m => m.classList.remove('active'));
-  document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
-  document.getElementById('page-' + id).classList.add('active');
-  const map = {home:0, dashboard:1, backtest:2, charts:3, run:4, about:5};
-  document.querySelectorAll('.nav-links a')[map[id]]?.classList.add('active');
-  if (id === 'dashboard') loadResults();
-  if (id === 'backtest') loadResults();
-  if (id === 'charts') initChartsPage();
-}
+// (showPage is defined below at the end of the script to prevent duplication)
 
 // ════════════════════════════════════════════════
 //  SERVER HEALTH CHECK
@@ -1455,16 +1446,18 @@ async function renderBtPriceChart(ticker) {
     series.setData(data.candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
     btLwChart.timeScale().fitContent();
 
-    // Resize handler to prevent overflow
+    // Resize handler to prevent overflow when container is revealed or window size changes
     const resizeObs = new ResizeObserver(() => {
-      if (btLwChart) btLwChart.applyOptions({ width: container.clientWidth });
+      if (btLwChart && container.clientWidth > 0) {
+        btLwChart.resize(container.clientWidth, 350);
+      }
     });
     resizeObs.observe(container);
 
     // Initial resize after a short delay to ensure DOM is ready
     setTimeout(() => {
       if (btLwChart && container.clientWidth > 0) {
-        btLwChart.applyOptions({ width: container.clientWidth });
+        btLwChart.resize(container.clientWidth, 350);
       }
     }, 100);
   } catch(e) { 
@@ -1982,7 +1975,11 @@ function renderLwChart(candles) {
   volumeSeries.setData(candles.map(c => ({ time:c.time, value:c.volume, color: c.close>=c.open?'rgba(0,229,160,.3)':'rgba(255,69,96,.3)' })));
   lwChart.timeScale().fitContent();
 
-  const obs = new ResizeObserver(() => { if(lwChart) lwChart.applyOptions({width:container.clientWidth}); });
+  const obs = new ResizeObserver(() => {
+    if (lwChart && container.clientWidth > 0) {
+      lwChart.resize(container.clientWidth, 400); // 400px height matches layout
+    }
+  });
   obs.observe(container);
 }
 
@@ -2142,6 +2139,13 @@ function renderRelComparison(data, t1, t2) {
     relT2Series.setData(data.map(d => ({ time: d.time, value: d.t2 })));
     
     relCompChart.timeScale().fitContent();
+
+    const obs = new ResizeObserver(() => {
+        if (relCompChart && container.clientWidth > 0) {
+            relCompChart.resize(container.clientWidth, 350);
+        }
+    });
+    obs.observe(container);
 }
 
 function renderRelScatter(data, t1, t2) {
@@ -2215,8 +2219,15 @@ function showPage(id) {
   const navA = Array.from(document.querySelectorAll('.nav-links a')).find(a => a.textContent.toLowerCase() === id.toLowerCase());
   if (navA) navA.classList.add('active');
 
+  if (id === 'dashboard') loadResults();
+  if (id === 'backtest') loadResults();
   if (id === 'charts') initChartsPage();
   if (id === 'relationship') initRelPage();
+
+  // Trigger a window resize event to force lightweight-charts to resize to visible container dimensions
+  setTimeout(() => {
+    window.dispatchEvent(new Event('resize'));
+  }, 50);
 }
 
 function showIntelligenceAlert(data) {
